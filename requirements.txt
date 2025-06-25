@@ -6,3 +6,4 @@ nest-asyncio
 albumentations
 torch 
 opencv-python-headless
+matplotlib

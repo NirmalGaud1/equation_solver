@@ -1,65 +1,196 @@
-# Requires Python 3.8+, install dependencies via requirements.txt
 import streamlit as st
 from PIL import Image
-import logging
-import os
-try:
-    from pix2tex.cli import LatexOCR
-except Exception as e:
-    st.error(f"Failed to import LatexOCR: {e}")
-    logging.error(f"Failed to import LatexOCR: {e}")
-    raise
+import pytesseract
+import cv2
+import numpy as np
 import sympy as sp
 import matplotlib.pyplot as plt
-import numpy as np
 import re
-import nest_asyncio
 import io
 import base64
+import logging
 
 # Setup logging
 logging.basicConfig(level=logging.DEBUG)
 
-# Apply nest_asyncio
-nest_asyncio.apply()
-
 # Streamlit app configuration
 st.set_page_config(page_title="Maths OCR Solver", layout="wide")
 st.title("Maths OCR Solver")
-st.markdown("Upload an image of a mathematical equation to recognize, solve, and visualize it.")
+st.markdown("Upload an image of a mathematical equation (e.g., 2x + 3 = 5 or x^2 - 4 = 0) to recognize, solve, and visualize it.")
 
 # Initialize SymPy symbol
 x = sp.Symbol('x')
 
-# Custom model path for pix2tex
-MODEL_CHECKPOINT_PATH = os.path.join(os.path.dirname(__file__), "pix2tex_models", "checkpoints", "weights.pth")
-
-def parse_latex_to_sympy(latex_str):
-    """Convert LaTeX equation to SymPy expression."""
-    logging.debug(f"Parsing LaTeX: {latex_str}")
+def preprocess_image(image):
+    """Preprocess image for better OCR results."""
     try:
-        # Remove LaTeX-specific commands and simplify
-        latex_str = latex_str.replace(r'\frac', 'frac').replace(r'{', '(').replace(r'}', ')')
-        latex_str = latex_str.replace(r'^', '**')
+        # Convert PIL image to OpenCV format
+        img_array = np.array(image)
+        if len(img_array.shape) == 3:
+            img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
         
-        # Handle fractions
-        def replace_frac(match):
-            num, denom = match.groups()
-            return f"({num})/({denom})"
-        latex_str = re.sub(r'frac\((.*?)\)\((.*?)\)', replace_frac, latex_str)
+        # Apply thresholding to enhance contrast
+        _, img_binary = cv2.threshold(img_array, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # Resize for better OCR accuracy
+        img_resized = cv2.resize(img_binary, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        
+        return img_resized
+    except Exception as e:
+        st.error(f"Error preprocessing image: {e}")
+        logging.error(f"Error preprocessing image: {e}")
+        return None
+
+def parse_text_to_sympy(text):
+    """Convert extracted text to SymPy expression."""
+    try:
+        logging.debug(f"Extracted text: {text}")
+        # Clean text: remove newlines, extra spaces
+        text = text.strip().replace('\n', ' ').replace('\r', '')
+        
+        # Replace common OCR mistakes (e.g., 'O' with '0')
+        text = re.sub(r'\bO\b', '0', text)
+        text = re.sub(r'\^', '**', text)  # Convert ^ to **
+        text = re.sub(r'(\d+)([a-zA-Z])', r'\1*\2', text)  # Add * for implicit multiplication (e.g., 2x -> 2*x)
         
         # Split equation at '='
-        if '=' in latex_str:
-            left, right = latex_str.split('=')
-            left = left.strip()
-            right = right.strip()
-            # Move all terms to one side (e.g., ax^2 + bx + c = 0)
-            expr = sp.sympify(left + '- (' + right + ')')
-            logging.debug(f"Parsed expression: {expr}")
-            return expr
-        st.error("No valid equation found (missing '=')")
-        logging.error("No valid equation found (missing '=')")
+        if '=' not in text:
+            st.error("No valid equation found (missing '=')")
+            logging.error("No valid equation found (missing '=')")
+            return None
+        
+        left, right = text.split('=')
+        left = left.strip()
+        right = right.strip()
+        
+        # Parse to SymPy expression
+        expr = sp.sympify(left + '- (' + right + ')')
+        logging.debug(f"Parsed expression: {expr}")
+        return expr
+    except Exception as e:
+        st.error(f"Error parsing equation: {e}")
+        logging.error(f"Error parsing equation: {e}")
         return None
+
+def solve_equation(expr):
+    """Solve the equation using SymPy."""
+    if expr is None:
+        return None
+    try:
+        solutions = sp.solve(expr, x)
+        logging.debug(f"Solutions: {solutions}")
+        return solutions
+    except Exception as e:
+        st.error(f"Error solving equation: {e}")
+        logging.error(f"Error solving equation: {e}")
+        return None
+
+def plot_graph(expr, solutions):
+    """Plot the graph of the equation and return as base64 string."""
+    try:
+        # Convert expression to a function for plotting
+        f = sp.lambdify(x, expr, modules=['numpy'])
+        x_vals = np.linspace(-10, 10, 400)
+        y_vals = f(x_vals)
+        
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.plot(x_vals, y_vals, label=str(expr))
+        if solutions:
+            for sol in solutions:
+                if sol.is_real:
+                    ax.scatter([float(sol)], [0], color='red', label=f'x = {sol}')
+        ax.axhline(0, color='black', linewidth=0.5)
+        ax.axvline(0, color='black', linewidth=0.5)
+        ax.grid(True)
+        ax.legend()
+        ax.set_title(f"Graph of {expr} = 0")
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        
+        # Save plot to buffer and encode to base64
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        plt.close(fig)
+        buf.seek(0 lin
+System: The response was cut off due to a character limit. Here's the continuation and completion of the Streamlit script, along with the `requirements.txt` file and further guidance for using the app with equations like the one in `1.png`.
+
+---
+
+### Completion of the Streamlit Script
+
+Continuing from where the previous response was cut off, here’s the complete `equation.py` script:
+
+<xaiArtifact artifact_id="ed16d749-f9cb-44d5-9e10-160452c34670" artifact_version_id="6b18e291-8844-473b-be39-c84640cac5e1" title="equation.py" contentType="text/python">
+# Requires Python 3.8+, install dependencies via requirements.txt
+import streamlit as st
+from PIL import Image
+import pytesseract
+import cv2
+import numpy as np
+import sympy as sp
+import matplotlib.pyplot as plt
+import re
+import io
+import base64
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.DEBUG)
+
+# Streamlit app configuration
+st.set_page_config(page_title="Maths OCR Solver", layout="wide")
+st.title("Maths OCR Solver")
+st.markdown("Upload an image of a mathematical equation (e.g., 2x + 3 = 5 or x^2 - 4 = 0) to recognize, solve, and visualize it.")
+
+# Initialize SymPy symbol
+x = sp.Symbol('x')
+
+def preprocess_image(image):
+    """Preprocess image for better OCR results."""
+    try:
+        # Convert PIL image to OpenCV format
+        img_array = np.array(image)
+        if len(img_array.shape) == 3:
+            img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        
+        # Apply thresholding to enhance contrast
+        _, img_binary = cv2.threshold(img_array, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # Resize for better OCR accuracy
+        img_resized = cv2.resize(img_binary, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        
+        return img_resized
+    except Exception as e:
+        st.error(f"Error preprocessing image: {e}")
+        logging.error(f"Error preprocessing image: {e}")
+        return None
+
+def parse_text_to_sympy(text):
+    """Convert extracted text to SymPy expression."""
+    try:
+        logging.debug(f"Extracted text: {text}")
+        # Clean text: remove newlines, extra spaces
+        text = text.strip().replace('\n', ' ').replace('\r', '')
+        
+        # Replace common OCR mistakes (e.g., 'O' with '0')
+        text = re.sub(r'\bO\b', '0', text)
+        text = re.sub(r'\^', '**', text)  # Convert ^ to **
+        text = re.sub(r'(\d+)([a-zA-Z])', r'\1*\2', text)  # Add * for implicit multiplication (e.g., 2x -> 2*x)
+        
+        # Split equation at '='
+        if '=' not in text:
+            st.error("No valid equation found (missing '=')")
+            logging.debug("No valid equation found (missing '=')")
+            return None
+        
+        left, right = text.split('=')
+        left = left.strip()
+        right = right.strip()
+        
+        # Parse to SymPy expression
+        expr = sp.sympify(left + '- (' + right + ')')
+        logging.debug(f"Parsed expression: {expr}")
+        return expr
     except Exception as e:
         st.error(f"Error parsing equation: {e}")
         logging.error(f"Error parsing equation: {e}")
@@ -123,21 +254,19 @@ def process_image(uploaded_file):
         # Display uploaded image
         st.image(img, caption="Uploaded Equation Image", width=300)
         
-        # Initialize pix2tex model with custom checkpoint path
-        if not os.path.exists(MODEL_CHECKPOINT_PATH):
-            st.error(f"Model weights not found at {MODEL_CHECKPOINT_PATH}")
-            logging.error(f"Model weights not found at {MODEL_CHECKPOINT_PATH}")
+        # Preprocess image
+        img_processed = preprocess_image(img)
+        if img_processed is None:
             return
-        model = LatexOCR(checkpoint=MODEL_CHECKPOINT_PATH)
-        logging.debug("LatexOCR model initialized with custom checkpoint")
-        # Extract LaTeX from image
-        latex = model(img)
-        st.subheader("Recognized LaTeX")
-        st.latex(latex)
-        logging.debug(f"Recognized LaTeX: {latex}")
         
-        # Parse LaTeX to SymPy
-        expr = parse_latex_to_sympy(latex)
+        # Extract text using Tesseract
+        text = pytesseract.image_to_string(img_processed, config='--psm 6')
+        st.subheader("Recognized Text")
+        st.write(text)
+        logging.debug(f"Recognized text: {text}")
+        
+        # Parse text to SymPy
+        expr = parse_text_to_sympy(text)
         if expr is None:
             return
         

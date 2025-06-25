@@ -1,9 +1,1 @@
-streamlit
-pix2tex 
-Pillow
-sympy  
-nest-asyncio
-albumentations
-torch 
-opencv-python-headless
-matplotlib
+streamlit Pillow sympy matplotlib numpy pytesseract opencv-python-headless

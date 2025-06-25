@@ -1,9 +1,14 @@
-# Requires Python 3.8+, install dependencies:
-# pip install streamlit pix2tex Pillow sympy numpy nest-asyncio
-# Ensure pix2tex model is set up (follow https://github.com/lukas-blecher/LaTeX-OCR)
+# Requires Python 3.8+, install dependencies via requirements.txt
 import streamlit as st
 from PIL import Image
-from pix2tex.cli import LatexOCR
+import logging
+import os
+try:
+    from pix2tex.cli import LatexOCR
+except Exception as e:
+    st.error(f"Failed to import LatexOCR: {e}")
+    logging.error(f"Failed to import LatexOCR: {e}")
+    raise
 import sympy as sp
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,7 +17,10 @@ import nest_asyncio
 import io
 import base64
 
-# Apply nest_asyncio to handle any async issues in pix2tex
+# Setup logging
+logging.basicConfig(level=logging.DEBUG)
+
+# Apply nest_asyncio
 nest_asyncio.apply()
 
 # Streamlit app configuration
@@ -23,32 +31,39 @@ st.markdown("Upload an image of a mathematical equation to recognize, solve, and
 # Initialize SymPy symbol
 x = sp.Symbol('x')
 
+# Custom model path for pix2tex
+MODEL_CHECKPOINT_PATH = os.path.join(os.path.dirname(__file__), "pix2tex_models", "checkpoints", "weights.pth")
+
 def parse_latex_to_sympy(latex_str):
     """Convert LaTeX equation to SymPy expression."""
-    # Remove LaTeX-specific commands and simplify
-    latex_str = latex_str.replace(r'\frac', 'frac').replace(r'{', '(').replace(r'}', ')')
-    latex_str = latex_str.replace(r'^', '**')
-    
-    # Handle fractions
-    def replace_frac(match):
-        num, denom = match.groups()
-        return f"({num})/({denom})"
-    latex_str = re.sub(r'frac\((.*?)\)\((.*?)\)', replace_frac, latex_str)
-    
-    # Split equation at '='
-    if '=' in latex_str:
-        left, right = latex_str.split('=')
-        left = left.strip()
-        right = right.strip()
-        # Move all terms to one side (e.g., ax^2 + bx + c = 0)
-        try:
+    logging.debug(f"Parsing LaTeX: {latex_str}")
+    try:
+        # Remove LaTeX-specific commands and simplify
+        latex_str = latex_str.replace(r'\frac', 'frac').replace(r'{', '(').replace(r'}', ')')
+        latex_str = latex_str.replace(r'^', '**')
+        
+        # Handle fractions
+        def replace_frac(match):
+            num, denom = match.groups()
+            return f"({num})/({denom})"
+        latex_str = re.sub(r'frac\((.*?)\)\((.*?)\)', replace_frac, latex_str)
+        
+        # Split equation at '='
+        if '=' in latex_str:
+            left, right = latex_str.split('=')
+            left = left.strip()
+            right = right.strip()
+            # Move all terms to one side (e.g., ax^2 + bx + c = 0)
             expr = sp.sympify(left + '- (' + right + ')')
+            logging.debug(f"Parsed expression: {expr}")
             return expr
-        except Exception as e:
-            st.error(f"Error parsing equation: {e}")
-            return None
-    st.error("No valid equation found (missing '=')")
-    return None
+        st.error("No valid equation found (missing '=')")
+        logging.error("No valid equation found (missing '=')")
+        return None
+    except Exception as e:
+        st.error(f"Error parsing equation: {e}")
+        logging.error(f"Error parsing equation: {e}")
+        return None
 
 def solve_equation(expr):
     """Solve the equation using SymPy."""
@@ -56,9 +71,11 @@ def solve_equation(expr):
         return None
     try:
         solutions = sp.solve(expr, x)
+        logging.debug(f"Solutions: {solutions}")
         return solutions
     except Exception as e:
         st.error(f"Error solving equation: {e}")
+        logging.error(f"Error solving equation: {e}")
         return None
 
 def plot_graph(expr, solutions):
@@ -89,9 +106,11 @@ def plot_graph(expr, solutions):
         plt.close(fig)
         buf.seek(0)
         img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+        logging.debug("Graph generated successfully")
         return img_base64
     except Exception as e:
         st.error(f"Error plotting graph: {e}")
+        logging.error(f"Error plotting graph: {e}")
         return None
 
 def process_image(uploaded_file):
@@ -99,16 +118,23 @@ def process_image(uploaded_file):
     try:
         # Load image
         img = Image.open(uploaded_file)
+        logging.debug("Image loaded successfully")
         
         # Display uploaded image
         st.image(img, caption="Uploaded Equation Image", width=300)
         
-        # Initialize pix2tex model
-        model = LatexOCR()
+        # Initialize pix2tex model with custom checkpoint path
+        if not os.path.exists(MODEL_CHECKPOINT_PATH):
+            st.error(f"Model weights not found at {MODEL_CHECKPOINT_PATH}")
+            logging.error(f"Model weights not found at {MODEL_CHECKPOINT_PATH}")
+            return
+        model = LatexOCR(checkpoint=MODEL_CHECKPOINT_PATH)
+        logging.debug("LatexOCR model initialized with custom checkpoint")
         # Extract LaTeX from image
         latex = model(img)
         st.subheader("Recognized LaTeX")
         st.latex(latex)
+        logging.debug(f"Recognized LaTeX: {latex}")
         
         # Parse LaTeX to SymPy
         expr = parse_latex_to_sympy(latex)
@@ -136,6 +162,7 @@ def process_image(uploaded_file):
             
     except Exception as e:
         st.error(f"Error processing image: {e}")
+        logging.error(f"Error processing image: {e}")
 
 # File uploader
 uploaded_file = st.file_uploader("Upload an image of a mathematical equation", type=["png", "jpg", "jpeg"])

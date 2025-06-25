@@ -1,1 +1,7 @@
-streamlit Pillow sympy matplotlib numpy pytesseract opencv-python-headless
+streamlit 
+Pillow 
+sympy 
+matplotlib 
+numpy 
+pytesseract 
+opencv-python-headless
